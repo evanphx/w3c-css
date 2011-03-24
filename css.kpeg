@@ -1,0 +1,239 @@
+%%name = CSSParser
+
+# lexer
+
+h = /[0-9a-fA-F]/
+
+nonascii = /[\200-\377]/
+
+unicode = h[1,6] (/\r\n/ | /[ \t\r\n\f]/)?
+escape = unicode | "\\" /[ -~\200-\377]/
+nmstart =  /[_a-zA-Z]/ | nonascii | escape
+nmchar = /[_a-zA-Z0-9\-]/ | nonascii | escape
+string1 = "\"" (/[^\n\r\f\\"]/ | ("\\" nl) | escape )* "\""
+string2 =  "'" (/[^\n\r\f\\']/ | ("\\" nl) | escape )* "'"
+badstring1 =   "\"" (/[^\n\r\f\\"]/ | ("\\" nl) |escape)* "\\"?
+badstring2  =   "'" (/[^\n\r\f\\']/ | ("\\" nl ) |escape)* "\\"?
+badcomment1  =   "/*" /[^*]*/ "*"+ (/[^\/*]/ /[^*]*/ "*"+)*
+badcomment2 =    "/*" /[^*]*/ ("*"+ /[^\/*]/ /[^*]*/)*
+baduri1     =    url "(" w (/[\!\#\$\%\&\*-\[\]-\~]/ | nonascii | escape)* w
+baduri2     =    url "(" w string w
+baduri3    =     url "(" w badstring
+comment   =  "/*" /[^*]*/ "*"+ (/[^\/*]/ /[^*]*/ "*"+)* "/"
+
+ident =    "-"? nmstart nmchar*
+name  =  nmchar+
+num   = /[0-9]+/ | /[0-9]*/ "." /[0-9]+/
+string    = string1 | string2
+badstring  =     badstring1 | badstring2
+badcomment =     badcomment1 | badcomment2
+baduri     =     baduri1 | baduri2 | baduri3
+url  =  (/[\!\#\$\%\&\*-\~]/ | nonascii | escape)*
+s  =  /[ \t\r\n\f]+/
+w  =  s?
+nl =  "\n" | /\r\n/ | /\r/ | /\f/
+
+nulls = /\0{0,4}/
+trail = (/\r\n/ | /[ \t\r\n\f]/)?
+
+letter(down,up) = < . > &{ text == down }
+             | nulls < . > &{text == up || text == down} trail
+
+
+A = letter("a", "A")
+C = letter("c", "C")
+D = letter("d", "D")
+E = letter("e", "E")
+F = letter("f", "F")
+G = letter("g", "G") | "\\g"
+H = letter("h", "H") | "\\h"
+I = letter("i", "I") | "\\i"
+K = letter("k", "K") | "\\k"
+L = letter("l", "L") | "\\l"
+M = letter("m", "M") | "\\m"
+N = letter("n", "N") | "\\n"
+O = letter("o", "O") | "\\o"
+P = letter("p", "P") | "\\p"
+R = letter("r", "R") | "\\r"
+S = letter("s", "S") | "\\s"
+T = letter("t", "T") | "\\t"
+U = letter("u", "U") | "\\u"
+X = letter("x", "X") | "\\x"
+Y = litter("y", "Y") | "\\y"
+Z = letter("z", "Z") | "\\z"
+
+CDO = "<!--"
+CDC = "-->"
+INCLUDES = "~="
+DASHMATCH = "|="
+
+STRING = string
+BAD_STRING = badstring
+
+IDENT = ident
+
+HASH = "#" name
+
+IMPORT_SYM = "@" I M P O R T
+PAGE_SYM = "@" P A G E
+MEDIA_SYM = "@" M E D I A
+CHARSET_SYM = "@charset"
+
+IMPORTANT_SYM = "!" - I M P O R T A N T
+
+EMS = num E M
+EXS = num E X
+LENGTH = num P X
+       | num C M
+       | num M M
+       | num I N
+       | num P T
+       | num P C
+ANGLE = num D E G
+      | num R A D
+      | num G R A D
+
+TIME = num M S
+     | num S
+
+FREQ = num H Z
+     | num K H Z
+
+RESOLUTION = num D P I
+           | num D P C M
+
+DIMENSION = num ident
+
+PERCENTAGE = num "%"
+
+NUMBER = num
+
+URI = U R L "(" w string w ")"
+    | U R L "(" w url w ")"
+
+BAD_URI = baduri
+
+FUNCTION = ident "("
+
+ONLY = O N L Y
+NOT = N O T
+AND = A N D
+
+
+# parser
+
+# The spec grammar allows a comment between any 2 tokens.
+# until kpeg can express an auto rule like that, comments
+# can only occur at obvious boundarys
+
+mc = comment?
+
+# Changed S* to - from spec because we have an S rule for the s
+# character
+
+- = s* (comment s)* s*
+
+stylesheet
+  = ( CHARSET_SYM STRING ";" )?
+    (s|CDO|CDC)* ( import ( CDO - | CDC - )* )*
+    ( ( ruleset | media | page ) ( CDO - | CDC - )* )*
+
+import
+  = IMPORT_SYM -
+    (STRING|URI) - media_query_list? ";" -
+
+media
+  = MEDIA_SYM - media_query_list "{" - ruleset* "}" -
+
+media_query_list
+  = - medium_query ("," - medium_query)*
+
+medium_query
+  = (ONLY | NOT)? - media_type - (AND - expression)*
+  | expression (AND - expression)*
+
+media_type
+  = IDENT
+
+expression
+  = "(" - media_feature - (":" - expr)? ")" -
+
+media_feature
+  = IDENT
+
+page
+  = PAGE_SYM - pseudo_page?
+    "{" - declaration? ( ";" - declaration? )* "}" -
+
+pseudo_page
+  = ":" IDENT -
+
+operator
+  = "/" - | "," -
+
+combinator
+  = "+" -
+  | ">" -
+
+unary_operator
+  = "-" | "+"
+
+property
+  = IDENT -
+
+ruleset
+  = selector ( "," - selector )*
+    "{" - declaration? ( ";" - declaration? )* "}" -
+
+selector
+  = simple_selector ( combinator selector | s+ ( combinator? selector )? )?
+
+simple_selector
+  = "::"? element_name ( HASH | class | attrib | pseudo )*
+  | ( HASH | class | attrib | pseudo )+
+
+class
+  = "." IDENT
+
+element_name
+  = IDENT | "*"
+
+attrib
+  = "[" - IDENT - ( ( "=" | INCLUDES | DASHMATCH ) -
+    ( IDENT | STRING ) - )? "]"
+
+pseudo
+  = ":" ":"? ( IDENT | FUNCTION - (IDENT -)? ")" )
+
+stopper = ";" | "}"
+
+declaration
+  = "filter" - ":" - (!stopper .)+
+  | property ":" - expr prio?
+  | "*" property - ":" - (!stopper .)+
+
+prio
+  = IMPORTANT_SYM -
+
+expr
+  = term ( operator? term )*
+
+term
+  = unary_operator?
+    ( PERCENTAGE - | LENGTH - | EMS - | EXS - | ANGLE - | TIME -
+      | FREQ - | RESOLUTION - | NUMBER - )
+  | STRING - | URI - | function | IDENT - | hexcolor
+
+function
+  = FUNCTION - expr ")" -
+
+#
+ # There is a constraint on the color that it must
+ # have either 3 or 6 hex-digits (i.e., [0-9a-fA-F])
+ # after the "#"; e.g., "#000" is OK, but "#abcd" is not.
+ #
+hexcolor
+  = HASH -
+
+
+root = - stylesheet - !.
